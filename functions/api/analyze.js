@@ -6,6 +6,8 @@ export async function onRequestPost({request, env}) {
   if (request.headers.get("Origin") !== new URL(request.url).origin) {
     return json({error: "Abrí el análisis desde el sitio publicado."}, 403);
   }
+  const denied = await checkTrialAccess(request, env);
+  if (denied) return denied;
   const key = env.GEMINI_API_KEY;
   const model = env.GEMINI_MODEL?.replace(/^models\//, "").trim();
   if (!key || !model || !/^[\w.-]+$/.test(model)) {
@@ -46,7 +48,13 @@ export async function onRequestPost({request, env}) {
       }
     );
     if (response.status === 429) return json({error: "Gemini alcanzó su límite de uso. Probá más tarde."}, 429);
-    if (!response.ok) return json({error: "Gemini rechazó la solicitud. Revisá la clave y el modelo configurados."}, 502);
+    if (!response.ok) {
+      const details = await response.json().catch(() => null);
+      const reason = details?.error?.details?.find?.(item => item?.reason)?.reason;
+      const knownReasons = ["API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED", "SERVICE_DISABLED"];
+      const hint = knownReasons.includes(reason) ? " · " + reason : "";
+      return json({error: "Gemini respondió HTTP " + response.status + hint + "."}, 502);
+    }
     const payload = await response.json();
     const output = JSON.parse(payload.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text || "").join("") || "null");
     if (typeof output?.foto_valida !== "boolean" || (output.foto_valida && typeof output.resumen !== "string")) {
@@ -56,4 +64,25 @@ export async function onRequestPost({request, env}) {
   } catch {
     return json({error: "No se pudo obtener un informe de Gemini. Probá de nuevo."}, 502);
   }
+}
+
+
+export async function checkTrialAccess(request, env) {
+  if (request.headers.get("Origin") !== new URL(request.url).origin) {
+    return json({error: "Abrí la prueba desde Modo Propio."}, 403);
+  }
+  const expected = env.TRIAL_ACCESS_CODE;
+  if (typeof expected !== "string" || expected.length < 24) {
+    return json({error: "El acceso a la prueba todavía no está habilitado."}, 503);
+  }
+  const code = request.headers.get("X-Trial-Code") || "";
+  if (!code || code.length > 128) return json({error: "Ingresá un código válido."}, 401);
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(expected), {name: "HMAC", hash: "SHA-256"}, false, ["sign", "verify"]);
+  const message = encoder.encode("modo-propio-trial");
+  const signature = await crypto.subtle.sign("HMAC", key, message);
+  const candidate = await crypto.subtle.importKey("raw", encoder.encode(code), {name: "HMAC", hash: "SHA-256"}, false, ["verify"]);
+  return await crypto.subtle.verify("HMAC", candidate, signature, message)
+    ? null
+    : json({error: "El código es incorrecto o ya no está vigente."}, 401);
 }
