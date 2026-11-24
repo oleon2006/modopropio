@@ -150,7 +150,7 @@ async function analyze(mode) {
   state.mode = mode;
   show("s-loading");
   try {
-    const response = await fetch("./api/analyze", {
+    const response = await fetch("/api/analyze", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -161,10 +161,10 @@ async function analyze(mode) {
       })
     });
     if (!response.headers.get("content-type")?.includes("application/json")) {
-      throw new Error("El análisis real requiere publicar el proyecto en Cloudflare Pages con su función activa.");
+      throw new Error("El análisis real requiere abrir el sitio desde la URL de Cloudflare y tener activa la ruta /api/analyze.");
     }
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error);
+    if (!response.ok) throw new Error(data.error || "El servidor rechazó la solicitud (" + response.status + ").");
     render(data);
   } catch (error) {
     show(mode === "photo" ? "s-preview" : "s-describe");
