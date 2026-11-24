@@ -145,6 +145,7 @@ $("#btnRetake").onclick=()=>show("s-home");$("#lnkShy").onclick=()=>show("s-desc
 document.querySelectorAll(".concern-chip").forEach(b=>b.addEventListener("click",()=>{const value=b.dataset.concern;const on=b.getAttribute("aria-pressed")==="true";b.setAttribute("aria-pressed",String(!on));state.concerns=on?state.concerns.filter(x=>x!==value):[...state.concerns,value];}));
 $("#btnAnalyze").onclick=()=>analyze("photo");$("#btnDescSend").onclick=()=>{const d=$("#descText").value.trim();if(d.length<15){err("Contanos un poco más para poder orientarte.");return;}state.description=d;analyze("text");};
 function setConsentError(){document.querySelectorAll(".consent").forEach(x=>x.classList.add("need"));err("Marcá la casilla de aceptación para continuar.");}
+let trialCode = "";
 async function analyze(mode) {
   if (!state.consent) { setConsentError(); return; }
   state.mode = mode;
@@ -152,7 +153,7 @@ async function analyze(mode) {
   try {
     const response = await fetch("/api/analyze", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", "X-Trial-Code": trialCode},
       body: JSON.stringify({
         consent: state.consent,
         image: mode === "photo" ? state.image : "",
@@ -164,6 +165,11 @@ async function analyze(mode) {
       throw new Error("El análisis real requiere abrir el sitio desde la URL de Cloudflare y tener activa la ruta /api/analyze.");
     }
     const data = await response.json();
+    if (response.status === 401) {
+      trialCode = "";
+      document.getElementById("trial-notice").showModal();
+      document.getElementById("trial-error").textContent = data.error;
+    }
     if (!response.ok) throw new Error(data.error || "El servidor rechazó la solicitud (" + response.status + ").");
     render(data);
   } catch (error) {
@@ -175,6 +181,58 @@ function listHtml(title,arr){if(!Array.isArray(arr)||!arr.length)return"";return
 
 function render(d){const result=$("#result");if(!d.foto_valida){result.innerHTML=`<div class="card"><h3>No pudimos analizar esa foto</h3><p>${esc(d.motivo_foto_invalida||"Probá con una foto clara, de frente y con buena luz.")}</p><button class="btn btn-primary" style="margin-top:14px" onclick="show('s-home')">Intentar otra vez</button></div>`;show("s-result");return;}const photo=state.mode==="photo"?`<img src="${state.image}" alt="Foto de vista previa">`:"";const obs=listHtml("Lo que observamos",d.observaciones);const trs=listHtml(`Tu plan de tratamientos con tu estética`,d.tratamientos);const prods=listHtml("Para tu rutina en casa",d.productos);const routine=(d.rutina_manana?.length||d.rutina_noche?.length)?`<div class="card"><h3>Rutina sugerida</h3><div class="routine"><div><h4>☀️ Mañana</h4><ol>${(d.rutina_manana||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ol></div><div><h4>🌙 Noche</h4><ol>${(d.rutina_noche||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ol></div></div></div>`:"";const premium=d.opcion_premium?`<div class="card premium"><h3>✨ Opción intensiva</h3><div class="rec"><span class="num">★</span><div><b>${esc(d.opcion_premium.nombre)}</b><div class="meta">${esc(d.opcion_premium.frecuencia||"")}</div><p>${esc(d.opcion_premium.por_que||"")}</p></div></div></div>`:"";const med=d.consulta_medica?`<div class="med">🩺 ${esc(d.consulta_medica)}</div>`:"";result.innerHTML=`${d.modo_demo?'<div class="demo">Modo de demostración: respuesta de ejemplo</div>':''}<div class="result-head">${photo}<div><h2>Orientación cosmética</h2><span class="tag">${esc(d.tipo_piel||"Orientación cosmética")}</span></div></div><div class="card"><p>${esc(d.resumen||"")}</p>${d.tema_principal?`<p style="margin-top:8px"><b>Enfoque:</b> ${esc(d.tema_principal)}</p>`:""}${d.fortalezas?.length?`<div class="good">${d.fortalezas.map(x=>`<span>✓ ${esc(x)}</span>`).join("")}</div>`:""}</div>${med}${obs}${trs}${d.plan?`<div class="card"><div class="plan"><h4>Cómo seguir</h4><p>${esc(d.plan)}</p></div></div>`:""}${premium}${prods}${routine}<div class="card cta"><h3>¿Querés conversar sobre tu piel?</h3><p>Escribile a tu estética para consultar por los tratamientos y turnos.</p><span>Tu WhatsApp aquí</span></div><button class="restart" type="button" onclick="location.reload()">Hacer un nuevo análisis</button>`;show("s-result");}
 document.querySelectorAll(".privacy-open,#privacyLink").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();$("#privacy").open=true;$("#privacy").scrollIntoView({behavior:"smooth",block:"center"});}));
+</script>
+<style>
+#trial-notice { width:min(440px,calc(100% - 32px)); border:0; border-radius:22px; padding:28px; color:#263f36; background:#fffefa; box-shadow:0 20px 70px #132b2560; }
+#trial-notice::backdrop { background:#132b2580; }
+#trial-notice h2 { margin-bottom:12px; }
+#trial-notice p { line-height:1.55; }
+#trial-notice a { display:block; text-align:center; padding:12px; margin-top:12px; color:#263f36; }
+#trial-notice .trial-contact { border-radius:999px; background:#285e4d; color:white; text-decoration:none; font-weight:600; }
+</style>
+<dialog id="trial-notice" aria-labelledby="trial-title" aria-describedby="trial-text">
+  <h2 id="trial-title">Solicitá una prueba del análisis facial</h2>
+  <p id="trial-text">Para probar el análisis facial con IA, escribinos por WhatsApp y coordinamos una demostración para tu centro de estética.</p>
+  <a class="trial-contact" href="https://wa.me/5491130039221?text=Hola%2C%20vi%20la%20secci%C3%B3n%20de%20Innovaci%C3%B3n%20est%C3%A9tica%20de%20Modo%20Propio%20y%20me%20gustar%C3%ADa%20solicitar%20una%20prueba%20del%20an%C3%A1lisis%20facial%20con%20IA." target="_blank" rel="noopener noreferrer" autofocus>Solicitar prueba por WhatsApp</a>
+  <form id="trial-form">
+    <label for="trial-code">¿Ya tenés un código de acceso?</label>
+    <input id="trial-code" type="password" required maxlength="128" autocomplete="off" style="display:block;width:100%;margin:8px 0;padding:10px">
+    <button class="btn btn-primary" type="submit">Ingresar a la prueba</button>
+    <p id="trial-error" role="status"></p>
+  </form>
+  <a href="./index.html#innovacion">Volver a Innovación estética</a>
+</dialog>
+<script>
+  const trialNotice = document.getElementById('trial-notice');
+  trialNotice.addEventListener('cancel', event => {
+    event.preventDefault();
+    location.href = './index.html#innovacion';
+  });
+  const trialForm = document.getElementById("trial-form");
+  trialForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const input = document.getElementById("trial-code");
+    const error = document.getElementById("trial-error");
+    const button = trialForm.querySelector("button");
+    const code = input.value.trim();
+    button.disabled = true;
+    error.textContent = "";
+    try {
+      const response = await fetch("/api/trial-access", {method: "POST", headers: {"X-Trial-Code": code}});
+      if (response.status !== 204) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "No se pudo validar el acceso.");
+      }
+      trialCode = code;
+      trialForm.reset();
+      trialNotice.close();
+    } catch (failure) {
+      error.textContent = failure.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  trialNotice.showModal();
 </script>
 </body>
 </html>
